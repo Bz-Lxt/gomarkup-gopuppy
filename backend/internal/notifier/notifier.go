@@ -102,8 +102,16 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 	if err != nil {
 		return err
 	}
-	defer w.Close()
 	if _, err := io.WriteString(w, body); err != nil {
+		w.Close()
+		return err
+	}
+	// Close the DATA writer first: it sends the terminating "." and
+	// reads the "250 Message accepted" response. Only then may we send
+	// QUIT; doing it the other way around leaves the server stuck in
+	// DATA mode waiting for the terminator, so the message is never
+	// enqueued and the session hangs until the gateway times out.
+	if err := w.Close(); err != nil {
 		return err
 	}
 	return c.Quit()
