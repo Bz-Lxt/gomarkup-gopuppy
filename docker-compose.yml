@@ -1,0 +1,123 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      TZ: Asia/Shanghai
+      POSTGRES_USER: gopuppy
+      POSTGRES_PASSWORD: gopuppy
+      POSTGRES_DB: gopuppy
+    ports:
+      - "27153:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U gopuppy -d gopuppy"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "27154:6379"
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    environment:
+      TZ: Asia/Shanghai
+      MH_UI_WEB_PATH: mailhog
+    ports:
+      - "27155:1025"
+      - "27156:8025"
+    restart: unless-stopped
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      TZ: Asia/Shanghai
+      APP_ENV: development
+      LOG_LEVEL: info
+      HTTP_ADDR: :8080
+      JWT_SECRET: gopuppy-dev-jwt-secret-change-me
+      JWT_ACCESS_TTL: 2h
+      JWT_REFRESH_TTL: 168h
+      DATABASE_URL: postgres://gopuppy:gopuppy@postgres:5432/gopuppy?sslmode=disable
+      REDIS_URL: redis://redis:6379/0
+      CORS_ORIGINS: http://localhost:27151,http://127.0.0.1:27151
+      STORAGE_DRIVER: local
+      STORAGE_LOCAL_ROOT: /data/uploads
+      SMTP_HOST: mailhog
+      SMTP_PORT: 1025
+      SMTP_FROM: gopuppy@local.test
+      WECOM_WEBHOOK_URL: ""
+      GENERIC_WEBHOOK_URL: ""
+      NOTIFIER_MODE: mock
+      REMINDER_SCAN_HOUR: "8"
+      REMINDER_TICK_SECONDS: "30"
+    ports:
+      - "27152:8080"
+    volumes:
+      - uploads:/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      mailhog:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/healthz"]
+      interval: 8s
+      timeout: 3s
+      retries: 12
+      start_period: 20s
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend-user
+      dockerfile: Dockerfile
+    environment:
+      TZ: Asia/Shanghai
+    ports:
+      - "27151:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 8s
+      timeout: 3s
+      retries: 8
+    restart: unless-stopped
+
+  qa:
+    profiles: ["qa"]
+    build:
+      context: ./tests
+      dockerfile: Dockerfile
+    environment:
+      TZ: Asia/Shanghai
+      BASE_URL: http://frontend
+      API_URL: http://backend:8080
+    depends_on:
+      frontend:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  uploads:
