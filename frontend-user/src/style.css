@@ -1,0 +1,80 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><polyline points='1,1 6,6 11,1' fill='none' stroke='%23999999' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-position: right 12px center;
+  background-repeat: no-repeat;
+  padding-right: 36px;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: #2a2118;
+  background: #f3e6d4;
+  font-family: 'Noto Serif SC', 'Source Serif 4', 'Songti SC', serif;
+}
+
+.paper-grain {
+  background-color: #f3e6d4;
+  background-image:
+    radial-gradient(circle at 12% 8%, rgba(196, 92, 38, 0.07), transparent 38%),
+    radial-gradient(circle at 88% 92%, rgba(61, 107, 79, 0.06), transparent 42%),
+    repeating-linear-gradient(
+      0deg,
+      rgba(90, 50, 20, 0.015) 0,
+      rgba(90, 50, 20, 0.015) 1px,
+      transparent 1px,
+      transparent 7px
+    );
+}
+
+.ink-rule {
+  background-image: linear-gradient(90deg, transparent, #e4d2b8 12%, #e4d2b8 88%, transparent);
+  height: 1px;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e8d4b8 0%, #fff8ee 45%, #e8d4b8 100%);
+  background-size: 200% 100%;
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+@keyframes shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.rise {
+  animation: rise 0.45s ease both;
+}
+
+.stamp-press:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
