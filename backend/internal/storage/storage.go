@@ -12,7 +12,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"gopuppy/internal/clock"
@@ -21,12 +20,6 @@ import (
 )
 
 const MaxFileBytes = 20 * 1024 * 1024
-
-var hashBuffers = sync.Pool{
-	New: func() any {
-		return make([]byte, 0, 32*1024)
-	},
-}
 
 type Object struct {
 	Key         string
@@ -291,19 +284,24 @@ func (r *Remote) SignedURL(_ context.Context, key string, ttl time.Duration) (st
 	return fmt.Sprintf("%s?exp=%d&sig=%s", r.url(key), exp, sig), nil
 }
 
+// HashReader fully drains r (up to MaxFileBytes+1), computes its SHA-256, and
+// returns the file bytes alongside the hash. The returned slice is owned
+// exclusively by the caller; it must never alias a buffer that a subsequent
+// call may recycle. A pooled buffer would let a fast-following upload (the
+// very next HashReader invocation) overwrite bytes the previous caller is
+// still streaming to Store.Put, swapping the persisted content while the
+// already-computed SHA-256 stays correct — exactly the "串档" race. Each
+// call therefore allocates and returns its own []byte so returned data is
+// immutable from the pool's perspective.
 func HashReader(r io.Reader) (sum string, data []byte, err error) {
 	h := sha256.New()
-	buf := hashBuffers.Get().([]byte)[:0]
-	b := bytes.NewBuffer(buf)
-	_, err = b.ReadFrom(io.LimitReader(r, MaxFileBytes+1))
+	buf, err := io.ReadAll(io.LimitReader(r, MaxFileBytes+1))
 	if err != nil {
 		return "", nil, err
 	}
-	buf = b.Bytes()
 	if int64(len(buf)) > MaxFileBytes {
 		return "", nil, domain.ErrTooLarge
 	}
 	_, _ = h.Write(buf)
-	hashBuffers.Put(buf[:0])
 	return hex.EncodeToString(h.Sum(nil)), buf, nil
 }
