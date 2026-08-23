@@ -1,6 +1,7 @@
 package reminder
 
 import (
+	"context"
 	"errors"
 	"net"
 	"strings"
@@ -46,6 +47,9 @@ func IsAdvanceOn(rule domain.ReminderRule, day time.Time) bool {
 
 // ClassifyDeliveryError maps a delivery error to transient vs permanent.
 // Auth (401/403) and validation (422) are never retried.
+// Upstream request cancellation (context.Canceled) and deadlines
+// (context.DeadlineExceeded / net timeouts) are treated as transient so
+// they can be retried later instead of being recorded as permanent failure.
 func ClassifyDeliveryError(err error) (transient bool, status domain.NotifyStatus) {
 	if err == nil {
 		return false, domain.NotifySent
@@ -56,6 +60,9 @@ func ClassifyDeliveryError(err error) (transient bool, status domain.NotifyStatu
 	}
 	if errors.Is(err, ErrValidationRemote) || strings.Contains(msg, "422") {
 		return false, domain.NotifyPermanentFailure
+	}
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return true, domain.NotifyFailed
 	}
 	var ne net.Error
 	if errors.As(err, &ne) && ne.Timeout() {

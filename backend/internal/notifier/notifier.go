@@ -79,34 +79,34 @@ func (s *SMTPSender) Send(ctx context.Context, msg Message) error {
 	d := net.Dialer{Timeout: 8 * time.Second}
 	conn, err := d.DialContext(ctx, "tcp", addr)
 	if err != nil {
-		return err
+		return fmt.Errorf("smtp dial: %w", err)
 	}
 	defer conn.Close()
 	c, err := smtp.NewClient(conn, s.Host)
 	if err != nil {
-		return err
+		return fmt.Errorf("smtp client: %w", err)
 	}
 	defer c.Close()
 	if s.User != "" {
 		if err := c.Auth(smtp.PlainAuth("", s.User, s.Pass, s.Host)); err != nil {
-			return fmt.Errorf("%w: %v", reminder.ErrAuthFailure, err)
+			return fmt.Errorf("%w: %w", reminder.ErrAuthFailure, err)
 		}
 	}
 	if err := c.Mail(s.From); err != nil {
-		return err
+		return fmt.Errorf("smtp mail: %w", err)
 	}
 	if err := c.Rcpt(to); err != nil {
-		return err
+		return fmt.Errorf("smtp rcpt: %w", err)
 	}
 	w, err := c.Data()
 	if err != nil {
-		return err
+		return fmt.Errorf("smtp data: %w", err)
 	}
 	if _, err := io.WriteString(w, body); err != nil {
-		return err
+		return fmt.Errorf("smtp write: %w", err)
 	}
 	if err := w.Close(); err != nil {
-		return err
+		return fmt.Errorf("smtp close: %w", err)
 	}
 	return c.Quit()
 }
@@ -138,7 +138,9 @@ func (h *HTTPSender) Send(ctx context.Context, msg Message) error {
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
-		return fmt.Errorf("%w: webhook request: %v", domain.ErrPermanent, err)
+		// Preserve the original error chain so ClassifyDeliveryError can
+		// detect context.Canceled / context.DeadlineExceeded via errors.Is.
+		return fmt.Errorf("webhook request: %w", err)
 	}
 	defer resp.Body.Close()
 	b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))

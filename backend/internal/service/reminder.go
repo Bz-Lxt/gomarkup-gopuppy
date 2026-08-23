@@ -131,7 +131,7 @@ func (s *Reminder) deliver(ctx context.Context, log *domain.NotificationLog) err
 	if log.Attempt >= 3 && log.Status == domain.NotifyFailed {
 		log.Status = domain.NotifyPermanentFailure
 		log.Error = "max attempts"
-		return s.Rules.UpdateLog(ctx, log)
+		return s.persistLog(ctx, log)
 	}
 	rule, err := s.Rules.ByID(ctx, log.RuleID)
 	if err != nil {
@@ -159,6 +159,17 @@ func (s *Reminder) deliver(ctx context.Context, log *domain.NotificationLog) err
 		Title:   fmt.Sprintf("[GoPuppy] %s · %s", kindLabel, rule.Title),
 		Body:    fmt.Sprintf("宠物提醒：%s（%s）将于 %s 到期。请及时处理。", pet.Name, rule.Title, clock.FormatDate(rule.NextDueAt)),
 	}
+	// If the caller's context is already canceled (e.g. the upstream HTTP
+	// request was aborted), don't burn an attempt against a dead context.
+	// Persist the log as FAILED so Recover() can retry it later with a fresh
+	// context, instead of recording PERMANENT_FAILURE.
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		if log.Status != domain.NotifyFailed {
+			log.Status = domain.NotifyFailed
+		}
+		log.Error = ctxErr.Error()
+		return s.persistLog(ctx, log)
+	}
 	err = s.Sender.Send(ctx, msg)
 	log.Attempt++
 	if err == nil {
@@ -166,19 +177,31 @@ func (s *Reminder) deliver(ctx context.Context, log *domain.NotificationLog) err
 		log.Status = domain.NotifySent
 		log.SentAt = &now
 		log.Error = ""
-		return s.Rules.UpdateLog(ctx, log)
+		return s.persistLog(ctx, log)
 	}
 	transient, st := reminder.ClassifyDeliveryError(err)
 	log.Status = st
 	log.Error = err.Error()
-	if transient && log.Attempt < 3 {
+	// Only retry in-process when the context is still alive. A canceled
+	// context would fail immediately again, so leave the log as FAILED and
+	// let Recover() retry it with a fresh context later.
+	if transient && log.Attempt < 3 && ctx.Err() == nil {
 		time.Sleep(reminder.Backoff(log.Attempt))
 		return s.deliver(ctx, log)
 	}
 	if !transient {
 		log.Status = domain.NotifyPermanentFailure
 	}
-	return s.Rules.UpdateLog(ctx, log)
+	return s.persistLog(ctx, log)
+}
+
+// persistLog writes the notification log using a detached context so that
+// the status/error of a delivery is always recorded even when the caller's
+// context has been canceled (e.g. upstream request aborted). Without this,
+// a cancellation would leave the in-memory log mutated but unsaved, so
+// Recover() would never pick it up.
+func (s *Reminder) persistLog(ctx context.Context, log *domain.NotificationLog) error {
+	return s.Rules.UpdateLog(context.WithoutCancel(ctx), log)
 }
 
 func buildRule(in RuleInput) (*domain.ReminderRule, error) {
