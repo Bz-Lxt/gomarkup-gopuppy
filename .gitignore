@@ -1,0 +1,51 @@
+# Binaries
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+/backend/bin/
+/backend/coverage.out
+/backend/coverage.html
+
+# Node
+node_modules/
+dist/
+.vite/
+.turbo/
+*.local
+
+# Env & secrets
+.env
+.env.local
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# Storage runtime
+/data/uploads/
+/backend/data/
+
+# Test artifacts
+/tests/playwright-report/
+/tests/test-results/
+/tests/.auth/
+.pytest_cache/
+__pycache__/
+
+# SOP lock (local activation marker)
+.alkaid-sop
+
+# Docs generated during deploy are kept in-repo for this project
+# (Requirements/Roadmap are SSOT and must be committed)
+/docs/
+/.alkaid-sop
+/CLAUDE.md
+/AGENTS.md
+/.cursorrules
+/.github/
