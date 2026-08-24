@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/google/uuid"
 	"gopuppy/internal/auth"
@@ -68,26 +67,20 @@ func Recover(log *slog.Logger) func(http.Handler) http.Handler {
 }
 
 func CORS(origins []string) func(http.Handler) http.Handler {
-	var mu sync.Mutex
+	// Build an immutable membership set once at construction time. CORS origin
+	// authorization must be evaluated independently for every request: a prior
+	// request must never affect a later one. Treating the whitelist as read-only
+	// (instead of mutating a shared slice) guarantees that every whitelisted
+	// origin keeps matching, regardless of request ordering.
+	allowed := make(map[string]struct{}, len(origins))
+	for _, o := range origins {
+		allowed[o] = struct{}{}
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
 			if origin != "" {
-				allowed := false
-				mu.Lock()
-				for i, candidate := range origins {
-					if candidate != origin {
-						continue
-					}
-					allowed = true
-					if i > 0 {
-						origins = append(origins[:0], origins[i:]...)
-						origins = append(origins, origins[:i]...)
-					}
-					break
-				}
-				mu.Unlock()
-				if allowed {
+				if _, ok := allowed[origin]; ok {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
 					w.Header().Set("Vary", "Origin")
 					w.Header().Set("Access-Control-Allow-Credentials", "true")
