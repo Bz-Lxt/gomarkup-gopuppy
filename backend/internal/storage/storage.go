@@ -87,10 +87,12 @@ func ExtForMIME(mime string) string {
 }
 
 func Sniff(head []byte) (string, error) {
-	probe := head
-	if len(probe) < sniffProbeSize {
-		probe = append(probe, make([]byte, sniffProbeSize-len(probe))...)
-	}
+	// probe must never alias the caller's backing array: append() below would
+	// otherwise overwrite bytes 16..512 of the caller's buffer with zeros,
+	// corrupting the data that is later persisted to the object store while the
+	// already-computed SHA-256 still reflects the original content.
+	probe := make([]byte, sniffProbeSize)
+	copy(probe, head)
 	if probe[0] == 0xFF && probe[1] == 0xD8 && probe[2] == 0xFF {
 		return "image/jpeg", nil
 	}
