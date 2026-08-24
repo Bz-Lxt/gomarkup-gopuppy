@@ -214,7 +214,13 @@ func (r *Remote) Put(ctx context.Context, key string, body io.Reader, size int64
 	if err := r.configured(); err != nil {
 		return err
 	}
-	uploadCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Minute)
+	// Derive the upload timeout from the caller's context so that a
+	// cancelled request (client disconnect / gateway 504) or an expired
+	// deadline promptly aborts the PUT. Previously this used
+	// context.WithoutCancel, which detached the upload from the parent
+	// context and let it run to completion in the background, leaving
+	// orphan objects in OSS/COS with no corresponding media record.
+	uploadCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
 	defer cancel()
 	req, err := http.NewRequestWithContext(uploadCtx, http.MethodPut, r.url(key), body)
 	if err != nil {
