@@ -34,18 +34,27 @@ type Store interface {
 	Delete(ctx context.Context, key string) error
 	SignedURL(ctx context.Context, key string, ttl time.Duration) (string, error)
 	Driver() domain.StorageDriver
+	// Ping verifies the backing store is actually usable (e.g. the local
+	// directory still exists and is writable). Readyz calls this so the
+	// readiness state cannot diverge from real availability.
+	Ping(ctx context.Context) error
 }
 
 func New(cfg *config.Config) (Store, error) {
 	switch domain.StorageDriver(cfg.StorageDriver) {
 	case domain.DriverLocal, "":
-		var local *Local
-		if info, err := os.Stat(cfg.StorageLocalRoot); err != nil || !info.IsDir() {
-			if err := os.MkdirAll(cfg.StorageLocalRoot, 0o755); err != nil {
-				return nil, err
-			}
-			local = &Local{Root: cfg.StorageLocalRoot, Secret: cfg.JWTSecret}
+		root := cfg.StorageLocalRoot
+		// Always ensure the directory exists and is writable. On a remounted
+		// persistent volume the directory is already present; previously that
+		// path left the *Local pointer nil while returning a non-nil interface,
+		// so the very first Put/Get panicked with a nil pointer dereference.
+		if err := os.MkdirAll(root, 0o755); err != nil {
+			return nil, err
 		}
+		if info, err := os.Stat(root); err != nil || !info.IsDir() {
+			return nil, fmt.Errorf("storage root %s is not a directory", root)
+		}
+		local := &Local{Root: root, Secret: cfg.JWTSecret}
 		return local, nil
 	case domain.DriverOSS:
 		return &Remote{
@@ -117,6 +126,27 @@ type Local struct {
 }
 
 func (l *Local) Driver() domain.StorageDriver { return domain.DriverLocal }
+
+// Ping confirms the root directory still exists and is writable. A remounted
+// or reshaped persistent volume can make a previously healthy root unusable;
+// this keeps /readyz honest instead of merely reporting the configured driver.
+func (l *Local) Ping(_ context.Context) error {
+	info, err := os.Stat(l.Root)
+	if err != nil {
+		return fmt.Errorf("storage root %q: %w", l.Root, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("storage root %q is not a directory", l.Root)
+	}
+	// Probe write access with a temp file; os.Access/W_OK is not portable.
+	probe, err := os.CreateTemp(l.Root, ".readyz-*")
+	if err != nil {
+		return fmt.Errorf("storage root %q not writable: %w", l.Root, err)
+	}
+	_ = probe.Close()
+	_ = os.Remove(probe.Name())
+	return nil
+}
 
 func (l *Local) abs(key string) (string, error) {
 	if strings.Contains(key, "..") || strings.HasPrefix(key, "/") {
@@ -198,6 +228,12 @@ type Remote struct {
 }
 
 func (r *Remote) Driver() domain.StorageDriver { return r.Kind }
+
+// Ping reports the remote driver as ready only when it is fully configured;
+// an unconfigured driver fails every actual operation and must not read "ready".
+func (r *Remote) Ping(_ context.Context) error {
+	return r.configured()
+}
 
 func (r *Remote) configured() error {
 	if r.AccessKey == "" || r.Secret == "" || r.Endpoint == "" {

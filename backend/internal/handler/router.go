@@ -97,5 +97,9 @@ func (a *API) Readyz(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "redis", 503)
 		return
 	}
+	if err := a.d.Store.Ping(ctx); err != nil {
+		http.Error(w, "storage", 503)
+		return
+	}
 	writeJSON(w, 200, map[string]any{"status": "ready", "storage": a.d.Store.Driver()})
 }
