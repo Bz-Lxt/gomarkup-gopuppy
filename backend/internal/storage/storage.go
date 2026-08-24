@@ -246,9 +246,14 @@ func (r *Remote) Get(ctx context.Context, key string) (io.ReadCloser, string, er
 	if err != nil {
 		return nil, "", err
 	}
-	defer resp.Body.Close()
+	// On error paths close immediately; on success ownership of resp.Body
+	// transfers to the caller (it must Close it once done reading).
+	// Closing here via defer before returning resp.Body would yield 200 + empty
+	// body because the stream is shut before io.Copy in the handler reads it.
 	if resp.StatusCode >= 400 {
-		return nil, "", fmt.Errorf("%s get %d", r.Kind, resp.StatusCode)
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 1024))
+		resp.Body.Close()
+		return nil, "", fmt.Errorf("%s get %d: %s", r.Kind, resp.StatusCode, string(b))
 	}
 	return resp.Body, resp.Header.Get("Content-Type"), nil
 }
