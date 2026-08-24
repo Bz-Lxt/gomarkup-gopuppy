@@ -25,7 +25,6 @@ const (
 
 func RequestID() func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
-		ww := &hijackWriter{}
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			id := r.Header.Get("X-Request-ID")
 			if id == "" {
@@ -33,7 +32,13 @@ func RequestID() func(http.Handler) http.Handler {
 				_, _ = rand.Read(b)
 				id = hex.EncodeToString(b)
 			}
-			ww.ResponseWriter = w
+			// A fresh wrapper per request is essential: a single shared
+			// instance would re-point its embedded ResponseWriter on every
+			// incoming request, so a slow handler could end up writing its
+			// body onto a different request's connection (response
+			// cross-talk).  Each request must own its own wrapper bound to
+			// its own ResponseWriter.
+			ww := &hijackWriter{ResponseWriter: w}
 			ctx := context.WithValue(r.Context(), CtxRequestID, id)
 			ww.Header().Set("X-Request-ID", id)
 			next.ServeHTTP(ww, r.WithContext(ctx))
