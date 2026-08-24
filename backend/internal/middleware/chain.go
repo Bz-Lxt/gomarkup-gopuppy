@@ -106,7 +106,7 @@ func Auth(issuer *auth.Issuer) func(http.Handler) http.Handler {
 				httputil.Error(w, RequestIDFrom(r.Context()), domain.ErrUnauthorized)
 				return
 			}
-			ctx := context.WithValue(context.Background(), CtxUserID, c.UserID)
+			ctx := context.WithValue(r.Context(), CtxUserID, c.UserID)
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})
 	}
